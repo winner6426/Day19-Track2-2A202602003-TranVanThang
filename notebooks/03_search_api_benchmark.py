@@ -17,6 +17,7 @@
 import _setup  # noqa: F401
 import statistics
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -30,20 +31,34 @@ import httpx
 
 # %%
 ROOT = Path(_setup.__file__).resolve().parent.parent
-proc = subprocess.Popen(
-    ["uvicorn", "app.main:app", "--port", "8000", "--log-level", "warning"],
-    cwd=str(ROOT),
-)
+URL = "http://localhost:8000"
+
+
+def api_ready() -> bool:
+    try:
+        response = httpx.get(f"{URL}/healthz", timeout=2.0)
+        return response.status_code == 200 and bool(response.json().get("ready"))
+    except (httpx.HTTPError, ValueError):
+        return False
+
+
+# Reuse a server started with `make api`; only own and stop a server that this
+# notebook starts itself. This also makes re-running the notebook idempotent.
+proc: subprocess.Popen | None = None
+if api_ready():
+    print(f"Reusing API server at {URL}")
+else:
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "uvicorn", "app.main:app", "--port", "8000", "--log-level", "warning"],
+        cwd=str(ROOT),
+    )
 
 # Đợi server up + warm (Searcher.from_corpus loads embeddings + indexes 1000 docs)
-URL = "http://localhost:8000"
 for _ in range(60):
-    try:
-        r = httpx.get(f"{URL}/healthz", timeout=2.0)
-        if r.status_code == 200 and r.json().get("ready"):
-            break
-    except httpx.HTTPError:
-        pass
+    if api_ready():
+        break
+    if proc is not None and proc.poll() is not None:
+        raise RuntimeError(f"API server exited early with code {proc.returncode}")
     time.sleep(1)
 else:
     raise RuntimeError("API didn't become ready within 60s")
@@ -127,9 +142,12 @@ else:
 # ## 5. Cleanup — stop the API server
 
 # %%
-proc.terminate()
-proc.wait(timeout=5)
-print("API server stopped")
+if proc is not None:
+    proc.terminate()
+    proc.wait(timeout=5)
+    print("Notebook-owned API server stopped")
+else:
+    print("Reused API server left running")
 
 # %% [markdown]
 # ## Deliverable evidence
