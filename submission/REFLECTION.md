@@ -37,5 +37,5 @@ của embedding model có thể đảo ngược kết luận tưởng như hiể
 
 ## Bonus challenge
 
-- [ ] Đã làm bonus (xem `bonus/`)
+- [x] Đã làm bonus (xem `bonus/`)
 - [ ] Pair work với: không
